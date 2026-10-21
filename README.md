@@ -79,11 +79,10 @@ camera sharing.
 | `SecurityToolkit-Offline.wsb` | Off | Off | Shared |
 | `SecurityToolkit-Protected.wsb` | Off | On | Off |
 
-Protected Client mode runs the sandbox in AppContainer isolation. That also
-blocks the writes `Start-SandboxKit.ps1` makes, so the Protected sandbox gets no
-desktop shortcuts and Python and VS Code aren't copied to `C:\Tools`. Run the
-tools straight from `C:\Kit\Tools`. With the clipboard off, nothing can be
-copied or pasted between the sandbox and your computer.
+Protected Client mode runs the sandbox in AppContainer isolation, an extra
+security boundary around the sandbox. Setup, shortcuts and the tools work the
+same as in the other two. With the clipboard off, nothing can be copied or
+pasted between the sandbox and your computer.
 
 ### Start-SandboxKit.ps1 (runs in the sandbox)
 

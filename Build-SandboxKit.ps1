@@ -723,9 +723,8 @@ function Get-WsbContent {
 # Offline: no network at all; for examining untrusted files. The kit itself
 # needs no network, so every tool works in both.
 # Protected: offline, plus Protected Client mode (AppContainer isolation) and
-# no clipboard sharing with the host. Protected Client blocks the writes that
-# Start-SandboxKit.ps1 makes, so expect no desktop shortcuts or copied tools;
-# run programs straight from C:\Kit\Tools instead.
+# no clipboard sharing with the host, for the files you trust least. Setup and
+# shortcuts work the same as in the other two.
 [IO.File]::WriteAllText($WsbOnline, (Get-WsbContent -Networking "Enable"), [Text.UTF8Encoding]::new($false))
 [IO.File]::WriteAllText($WsbOffline, (Get-WsbContent -Networking "Disable"), [Text.UTF8Encoding]::new($false))
 [IO.File]::WriteAllText(
