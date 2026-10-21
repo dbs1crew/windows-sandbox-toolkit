@@ -41,9 +41,11 @@ Anything else you need goes in `Tools\Other` (see below).
    powershell -ExecutionPolicy Bypass -File C:\SandboxKit\Build-SandboxKit.ps1
    ```
 
-3. Double-click one of the two files the build creates:
+3. Double-click one of the three files the build creates:
    - `SecurityToolkit-Online.wsb`: networking on
    - `SecurityToolkit-Offline.wsb`: networking off, for untrusted files
+   - `SecurityToolkit-Protected.wsb`: networking off, Protected Client mode
+     and no clipboard sharing, for the most isolation (see below)
 
 The sandbox starts, runs `Start-SandboxKit.ps1`, and puts a shortcut for each
 tool on the desktop.
@@ -54,7 +56,7 @@ tool on the desktop.
 
 Downloads the latest portable version of each tool into `Tools`, the installers
 that can't be portable (Npcap and the Visual C++ runtimes) into `Installers`,
-and writes the two `.wsb` files with your kit's path. Downloads are cached in
+and writes the three `.wsb` files with your kit's path. Downloads are cached in
 `Cache`, so rerunning the script only fetches what has a new version. If one
 tool fails, the rest of the kit still builds.
 
@@ -68,17 +70,57 @@ To preinstall different VS Code extensions:
 
 Each `.wsb` file maps the kit folder into the sandbox at `C:\Kit` as
 **read-only**, so nothing running in the sandbox can change your kit, and runs
-`Start-SandboxKit.ps1` at logon. The two files differ only in the
-`<Networking>` setting.
+`Start-SandboxKit.ps1` at logon. All three turn off printer, microphone and
+camera sharing.
+
+| File | Networking | Protected Client | Clipboard |
+| --- | --- | --- | --- |
+| `SecurityToolkit-Online.wsb` | On | Off | Shared |
+| `SecurityToolkit-Offline.wsb` | Off | Off | Shared |
+| `SecurityToolkit-Protected.wsb` | Off | On | Off |
+
+Protected Client mode runs the sandbox in AppContainer isolation. That also
+blocks the writes `Start-SandboxKit.ps1` makes, so the Protected sandbox gets no
+desktop shortcuts and Python and VS Code aren't copied to `C:\Tools`. Run the
+tools straight from `C:\Kit\Tools`. With the clipboard off, nothing can be
+copied or pasted between the sandbox and your computer.
 
 ### Start-SandboxKit.ps1 (runs in the sandbox)
 
 1. Copies Python and VS Code to `C:\Tools`, since they need a writable folder.
-2. Installs the Visual C++ runtimes silently.
+2. Starts the Visual C++ runtime installs in a hidden background window, so
+   the rest of setup doesn't wait for them (see below).
 3. Accepts the Sysinternals license for the session.
 4. Adds the tools to PATH.
 5. Creates desktop shortcuts, including one for `Tools\Other`.
-6. Logs to `C:\Tools\SandboxKit.log`.
+6. Logs each step with a timestamp and how long it took to
+   `C:\Tools\SandboxKit.log`.
+
+Setup is usually done in about 15 seconds.
+
+#### The Visual C++ runtimes
+
+Nmap and Wireshark need the Visual C++ runtimes, and a fresh sandbox doesn't
+have them. While Windows Installer checks each package's digital signature, it
+can try to reach the internet to check for revoked certificates and download
+root certificate updates. On some networks those requests hang until a
+2-minute timeout, once per package, which added about 8 minutes to setup.
+
+So the background install:
+
+1. Saves the current certificate lookup settings.
+2. Makes online certificate lookups give up after 1 second, and turns off
+   downloads of intermediate and root certificates.
+3. Installs the x64 and then the x86 runtime.
+4. Puts every setting back exactly as it was, even if an install fails.
+
+Signatures are still checked against the certificates already in Windows, and
+the online checks come back on as soon as the installs finish, so tools like
+`sigcheck` behave normally afterwards.
+
+Progress and timings go to `C:\Tools\VCRuntimes.log`. Each installer also
+writes a detailed log, `C:\Tools\vc_redist.x64*.log` and
+`C:\Tools\vc_redist.x86*.log`.
 
 ## Adding your own tools
 
@@ -94,6 +136,9 @@ its own `.exe` should be copied to the sandbox desktop and run from there.
 - **Live capture needs Npcap**, which is a driver and must be installed. Use the
   "Install Npcap" desktop shortcut; the free edition can't install silently.
   Opening saved captures works without it.
+- **Nmap and Wireshark need the runtimes to finish installing.** Opened too
+  early, they may report a missing DLL. Check `C:\Tools\VCRuntimes.log`, or
+  wait a minute and try again.
 - **pip needs the network**, so new Python packages can only be installed in
   the Online sandbox.
 - Wireshark's portable build and Nmap are unpacked from their installers with
