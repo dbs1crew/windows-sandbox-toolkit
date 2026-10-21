@@ -101,22 +101,10 @@ Setup is usually done in about 15 seconds.
 #### The Visual C++ runtimes
 
 Nmap and Wireshark need the Visual C++ runtimes, and a fresh sandbox doesn't
-have them. While Windows Installer checks each package's digital signature, it
-can try to reach the internet to check for revoked certificates and download
-root certificate updates. On some networks those requests hang until a
-2-minute timeout, once per package, which added about 8 minutes to setup.
-
-So the background install:
-
-1. Saves the current certificate lookup settings.
-2. Makes online certificate lookups give up after 1 second, and turns off
-   downloads of intermediate and root certificates.
-3. Installs the x64 and then the x86 runtime.
-4. Puts every setting back exactly as it was, even if an install fails.
-
-Signatures are still checked against the certificates already in Windows, and
-the online checks come back on as soon as the installs finish, so tools like
-`sigcheck` behave normally afterwards.
+have them. On some computers Windows Installer spends 2 minutes verifying each
+package's signature, about 8 minutes for both runtimes. This happens with
+networking off too, so it isn't a network timeout. Running the installs in the
+background keeps the rest of setup to about 15 seconds.
 
 Progress and timings go to `C:\Tools\VCRuntimes.log`. Each installer also
 writes a detailed log, `C:\Tools\vc_redist.x64*.log` and
@@ -137,8 +125,8 @@ its own `.exe` should be copied to the sandbox desktop and run from there.
   "Install Npcap" desktop shortcut; the free edition can't install silently.
   Opening saved captures works without it.
 - **Nmap and Wireshark need the runtimes to finish installing.** Opened too
-  early, they may report a missing DLL. Check `C:\Tools\VCRuntimes.log`, or
-  wait a minute and try again.
+  early, they may report a missing DLL. Check `C:\Tools\VCRuntimes.log`; on
+  computers with the slow signature check, this takes about 8 minutes.
 - **pip needs the network**, so new Python packages can only be installed in
   the Online sandbox.
 - Wireshark's portable build and Nmap are unpacked from their installers with

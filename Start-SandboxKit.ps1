@@ -138,12 +138,9 @@ Invoke-Step "Copying Python and VS Code to $LocalTools" {
 # The runtime installers run in a hidden background process so setup carries
 # on. Nmap and Wireshark need them; everything else works right away.
 #
-# Each Windows Installer package checks its digital signature, and that check
-# can try to reach the internet (revocation lists, root certificate updates).
-# On some networks those requests hang until a 2-minute timeout, per package.
-# The background script turns the online lookups off only while the
-# installers run, then puts every setting back the way it was. Signatures are
-# still checked against the certificates Windows already has.
+# On some computers each Windows Installer package spends 2 minutes verifying
+# its signature, about 8 minutes in all. It happens with networking off too,
+# so it is not a network timeout; the cause is still being investigated.
 #
 # Progress goes to C:\Tools\VCRuntimes.log, and each installer writes its own
 # detailed log (C:\Tools\vc_redist.<arch>*.log).
@@ -161,40 +158,7 @@ function Write-RuntimeLog {
     Add-Content -LiteralPath $LogFile ("{0:HH:mm:ss.fff} {1}" -f (Get-Date), $Message)
 }
 
-$ChainConfig = "HKLM:\SOFTWARE\Microsoft\Cryptography\OID\EncodingType 0\CertDllCreateCertificateChainEngine\Config"
-
-$Settings = @(
-    # Give up on any certificate URL (CRL, OCSP, AIA) after one second.
-    @{ Path = $ChainConfig; Name = "ChainUrlRetrievalTimeoutMilliseconds"; Value = 1000 }
-    @{ Path = $ChainConfig; Name = "ChainRevAccumulativeUrlRetrievalTimeoutMilliseconds"; Value = 1000 }
-    # Don't download missing intermediate certificates.
-    @{ Path = $ChainConfig; Name = "DisableAIAUrlRetrieval"; Value = 1 }
-    # Don't download root certificate updates from Windows Update.
-    @{ Path = "HKLM:\SOFTWARE\Policies\Microsoft\SystemCertificates\AuthRoot"; Name = "DisableRootAutoUpdate"; Value = 1 }
-)
-
-# Remember what was there so it can be put back exactly.
-$Saved = foreach ($Setting in $Settings) {
-    $Current = Get-ItemProperty -Path $Setting.Path -Name $Setting.Name -ErrorAction SilentlyContinue
-
-    [pscustomobject]@{
-        Setting = $Setting
-        Existed = [bool]$Current
-        Value   = if ($Current) { $Current.($Setting.Name) } else { $null }
-    }
-}
-
 try {
-    foreach ($Setting in $Settings) {
-        if (-not (Test-Path -LiteralPath $Setting.Path)) {
-            New-Item -Path $Setting.Path -Force | Out-Null
-        }
-
-        New-ItemProperty -Path $Setting.Path -Name $Setting.Name -Value $Setting.Value -PropertyType DWord -Force | Out-Null
-    }
-
-    Write-RuntimeLog "Online certificate checks paused"
-
     foreach ($Path in $Installer) {
         $Name = [IO.Path]::GetFileNameWithoutExtension($Path)
         $Timer = [Diagnostics.Stopwatch]::StartNew()
@@ -215,20 +179,6 @@ try {
 }
 catch {
     Write-RuntimeLog "ERROR: $($_.Exception.Message)"
-}
-finally {
-    foreach ($Entry in $Saved) {
-        $Setting = $Entry.Setting
-
-        if ($Entry.Existed) {
-            Set-ItemProperty -Path $Setting.Path -Name $Setting.Name -Value $Entry.Value
-        }
-        else {
-            Remove-ItemProperty -Path $Setting.Path -Name $Setting.Name -ErrorAction SilentlyContinue
-        }
-    }
-
-    Write-RuntimeLog "Online certificate checks restored"
 }
 '@
 
