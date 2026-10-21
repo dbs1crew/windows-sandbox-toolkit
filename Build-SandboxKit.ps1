@@ -9,10 +9,11 @@
     not administrator rights.
 
     It downloads portable builds of each tool into <KitRoot>\Tools, keeps a
-    download cache so reruns are quick, and writes two sandbox files:
-    SecurityToolkit-Online.wsb (networking on) and
-    SecurityToolkit-Offline.wsb (networking off). Double-click either one
-    to start a sandbox with everything ready.
+    download cache so reruns are quick, and writes three sandbox files:
+    SecurityToolkit-Online.wsb (networking on),
+    SecurityToolkit-Offline.wsb (networking off) and
+    SecurityToolkit-Protected.wsb (networking off, Protected Client mode,
+    clipboard off). Double-click one to start a sandbox.
 
     Keep Build-SandboxKit.ps1 and Start-SandboxKit.ps1 together in one
     folder (for example C:\SandboxKit). Rerun this script whenever you want
@@ -29,9 +30,16 @@
     powershell -ExecutionPolicy Bypass -File C:\SandboxKit\Build-SandboxKit.ps1
 #>
 
+# VSCodeExtensions is used inside the Visual Studio Code build step's script
+# block, which PSScriptAnalyzer can't follow.
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+    "PSReviewUnusedParameter", "VSCodeExtensions",
+    Justification = "Used inside the Visual Studio Code build step's script block.")]
 [CmdletBinding()]
 param(
-    [string]$KitRoot = $PSScriptRoot,
+    # Resolved below: $PSScriptRoot can be empty here in Windows PowerShell
+    # 5.1 when the script is dot-sourced (e.g. the VS Code/ISE Run button).
+    [string]$KitRoot,
 
     [string[]]$VSCodeExtensions = @("ms-python.python")
 )
@@ -52,6 +60,18 @@ $ProgressPreference = "SilentlyContinue"
 # Configuration
 # ---------------------------------------------------------------------------
 
+if (-not $KitRoot) {
+    $KitRoot = $PSScriptRoot
+}
+
+if (-not $KitRoot -and $MyInvocation.MyCommand.Path) {
+    $KitRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+}
+
+if (-not $KitRoot) {
+    throw "Could not determine the kit folder. Pass -KitRoot."
+}
+
 $UserAgent     = "SandboxKitBuilder/1.0"
 $ToolsDir      = Join-Path $KitRoot "Tools"
 $InstallersDir = Join-Path $KitRoot "Installers"
@@ -59,6 +79,7 @@ $CacheDir      = Join-Path $KitRoot "Cache"
 $WorkDir       = Join-Path $CacheDir "_work"
 $WsbOnline     = Join-Path $KitRoot "SecurityToolkit-Online.wsb"
 $WsbOffline    = Join-Path $KitRoot "SecurityToolkit-Offline.wsb"
+$WsbProtected  = Join-Path $KitRoot "SecurityToolkit-Protected.wsb"
 $StartScript   = Join-Path $KitRoot "Start-SandboxKit.ps1"
 
 # Paths inside the sandbox. These must match Start-SandboxKit.ps1.
@@ -80,6 +101,10 @@ function Write-Step {
 }
 
 function New-CleanDirectory {
+    # Internal helper; -WhatIf support would add nothing.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        "PSUseShouldProcessForStateChangingFunctions", "",
+        Justification = "Internal helper, not called by users.")]
     param([string]$Path)
 
     if (Test-Path -LiteralPath $Path) {
@@ -163,7 +188,7 @@ function Select-GitHubAsset {
     }
 }
 
-function Get-PageVersions {
+function Get-PageVersion {
     <# Returns every version captured by group 1 of $Pattern on a web page. #>
     param(
         [string]$Url,
@@ -208,7 +233,7 @@ function Expand-With7Zip {
     }
 }
 
-function Move-DirectoryContents {
+function Move-DirectoryContent {
     param(
         [string]$Source,
         [string]$Destination
@@ -257,10 +282,6 @@ function Invoke-KitStep {
 # ---------------------------------------------------------------------------
 # Build
 # ---------------------------------------------------------------------------
-
-if (-not $KitRoot) {
-    throw "Could not determine the kit folder. Pass -KitRoot."
-}
 
 foreach ($Directory in @($KitRoot, $ToolsDir, $InstallersDir, $CacheDir)) {
     if (-not (Test-Path -LiteralPath $Directory)) {
@@ -408,7 +429,7 @@ Invoke-KitStep "HxD" {
 Invoke-KitStep "Wireshark" {
     $Base = "https://www.wireshark.org/download/win64/"
 
-    $Versions = Get-PageVersions $Base 'WiresharkPortable64_(\d+\.\d+\.\d+)\.paf\.exe'
+    $Versions = Get-PageVersion $Base 'WiresharkPortable64_(\d+\.\d+\.\d+)\.paf\.exe'
 
     # Odd minor versions (4.7, 4.9) are development releases.
     $Stable = @($Versions | Where-Object { ([version]$_).Minor % 2 -eq 0 })
@@ -430,7 +451,7 @@ Invoke-KitStep "Wireshark" {
     }
 
     $Destination = Join-Path $ToolsDir "Wireshark"
-    Move-DirectoryContents $Exe.DirectoryName $Destination
+    Move-DirectoryContent $Exe.DirectoryName $Destination
 
     if (-not (Test-Path -LiteralPath (Join-Path $Destination "tshark.exe"))) {
         Write-Host "    Note: tshark.exe is not included in this Wireshark package." -ForegroundColor Yellow
@@ -443,7 +464,7 @@ Invoke-KitStep "Wireshark" {
 
 Invoke-KitStep "Nmap" {
     $Version = Select-NewestVersion (
-        Get-PageVersions "https://nmap.org/download.html" 'nmap-(\d+\.\d+)-setup\.exe'
+        Get-PageVersion "https://nmap.org/download.html" 'nmap-(\d+\.\d+)-setup\.exe'
     )
 
     $FileName = "nmap-$Version-setup.exe"
@@ -462,7 +483,7 @@ Invoke-KitStep "Nmap" {
     }
 
     $Destination = Join-Path $ToolsDir "Nmap"
-    Move-DirectoryContents $Exe.DirectoryName $Destination
+    Move-DirectoryContent $Exe.DirectoryName $Destination
 
     foreach ($Leftover in @('$PLUGINSDIR', "Uninstall.exe")) {
         $Path = Join-Path $Destination $Leftover
@@ -479,7 +500,7 @@ Invoke-KitStep "Nmap" {
 
 Invoke-KitStep "Npcap installer" {
     $Version = Select-NewestVersion (
-        Get-PageVersions "https://npcap.com/" 'npcap-(\d+\.\d+)\.exe'
+        Get-PageVersion "https://npcap.com/" 'npcap-(\d+\.\d+)\.exe'
     )
 
     $FileName = "npcap-$Version.exe"
@@ -575,7 +596,7 @@ Invoke-KitStep "Python" {
     Expand-With7Zip $Package $Extracted
 
     $Destination = Join-Path $ToolsDir "Python"
-    Move-DirectoryContents (Join-Path $Extracted "tools") $Destination
+    Move-DirectoryContent (Join-Path $Extracted "tools") $Destination
 
     $PythonExe = Join-Path $Destination "python.exe"
 
@@ -669,12 +690,21 @@ Invoke-KitStep "Visual Studio Code" {
 
 Write-Step "Writing sandbox configurations"
 
-function New-WsbContent {
-    param([ValidateSet("Enable", "Disable")][string]$Networking)
+function Get-WsbContent {
+    param(
+        [ValidateSet("Enable", "Disable")][string]$Networking,
+        [ValidateSet("Enable", "Disable")][string]$ProtectedClient = "Disable",
+        [ValidateSet("Enable", "Disable")][string]$Clipboard = "Enable"
+    )
 
     return @"
 <Configuration>
   <Networking>$Networking</Networking>
+  <ProtectedClient>$ProtectedClient</ProtectedClient>
+  <ClipboardRedirection>$Clipboard</ClipboardRedirection>
+  <PrinterRedirection>Disable</PrinterRedirection>
+  <AudioInput>Disable</AudioInput>
+  <VideoInput>Disable</VideoInput>
   <MappedFolders>
     <MappedFolder>
       <HostFolder>$([Security.SecurityElement]::Escape($KitRoot))</HostFolder>
@@ -692,10 +722,20 @@ function New-WsbContent {
 # Online: the sandbox can reach the internet (pip, browsing, updates).
 # Offline: no network at all; for examining untrusted files. The kit itself
 # needs no network, so every tool works in both.
-[IO.File]::WriteAllText($WsbOnline, (New-WsbContent -Networking "Enable"), [Text.UTF8Encoding]::new($false))
-[IO.File]::WriteAllText($WsbOffline, (New-WsbContent -Networking "Disable"), [Text.UTF8Encoding]::new($false))
+# Protected: offline, plus Protected Client mode (AppContainer isolation) and
+# no clipboard sharing with the host. Protected Client blocks the writes that
+# Start-SandboxKit.ps1 makes, so expect no desktop shortcuts or copied tools;
+# run programs straight from C:\Kit\Tools instead.
+[IO.File]::WriteAllText($WsbOnline, (Get-WsbContent -Networking "Enable"), [Text.UTF8Encoding]::new($false))
+[IO.File]::WriteAllText($WsbOffline, (Get-WsbContent -Networking "Disable"), [Text.UTF8Encoding]::new($false))
+[IO.File]::WriteAllText(
+    $WsbProtected,
+    (Get-WsbContent -Networking "Disable" -ProtectedClient "Enable" -Clipboard "Disable"),
+    [Text.UTF8Encoding]::new($false)
+)
 Write-Host "    $WsbOnline"
 Write-Host "    $WsbOffline"
+Write-Host "    $WsbProtected"
 
 # Remove the single .wsb file that earlier versions of this script wrote.
 $OldWsb = Join-Path $KitRoot "SecurityToolkit.wsb"
@@ -725,4 +765,4 @@ if ($FailedCount -gt 0) {
     exit 1
 }
 
-Write-Host "Kit ready. Double-click SecurityToolkit-Online.wsb or SecurityToolkit-Offline.wsb to start a sandbox." -ForegroundColor Green
+Write-Host "Kit ready. Double-click SecurityToolkit-Online.wsb, SecurityToolkit-Offline.wsb or SecurityToolkit-Protected.wsb to start a sandbox." -ForegroundColor Green

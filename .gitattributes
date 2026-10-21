@@ -1,0 +1,21 @@
+# Line endings
+#
+# Store text files with LF line endings in the repository, and let Git
+# convert them on checkout. This keeps diffs clean no matter which computer
+# or editor made the change.
+* text=auto
+
+# Windows-only files always use Windows (CRLF) line endings when checked out.
+*.ps1  text eol=crlf
+*.psm1 text eol=crlf
+*.psd1 text eol=crlf
+*.wsb  text eol=crlf
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+
+# Binary files: never convert or diff as text.
+*.png  binary
+*.jpg  binary
+*.exe  binary
+*.zip  binary
+*.7z   binary
